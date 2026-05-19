@@ -1,0 +1,7 @@
+langchain==0.1.10
+langchain-openai==0.0.8
+langserve==0.1.4
+fastapi==0.110.0
+uvicorn==0.28.0
+python-dotenv==1.0.1
+pytz==2024.1
