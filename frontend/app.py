@@ -14,36 +14,36 @@ st.title("🤖 LangChain 对话助手")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+if "input_text" not in st.session_state:
+    st.session_state.input_text = ""
 
-if prompt := st.chat_input("请输入您的问题..."):
+for message in st.session_state.messages:
+    st.write(f"**{message['role']}:** {message['content']}")
+
+def send_message():
+    prompt = st.session_state.input_text
+    if prompt.strip() == "":
+        return
+    
     st.session_state.messages.append({"role": "user", "content": prompt})
     
-    with st.chat_message("user"):
-        st.markdown(prompt)
-    
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        full_response = ""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/chat/memory",
+            json={"messages": st.session_state.messages}
+        )
         
-        try:
-            response = requests.post(
-                f"{API_BASE_URL}/chat/memory",
-                json={"messages": st.session_state.messages}
-            )
-            
-            if response.status_code == 200:
-                full_response = response.json().get("response", "暂无响应")
-            else:
-                full_response = f"服务器错误: {response.status_code}"
-        except Exception as e:
-            full_response = f"连接错误: {str(e)}"
-        
-        message_placeholder.markdown(full_response)
+        if response.status_code == 200:
+            full_response = response.json().get("response", "暂无响应")
+        else:
+            full_response = f"服务器错误: {response.status_code}"
+    except Exception as e:
+        full_response = f"连接错误: {str(e)}"
     
     st.session_state.messages.append({"role": "assistant", "content": full_response})
+    st.session_state.input_text = ""
+
+st.text_input("请输入您的问题...", key="input_text", on_change=send_message)
 
 st.sidebar.title("功能说明")
 st.sidebar.info(

@@ -1,91 +1,146 @@
-from fastapi import FastAPI
-from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory
-from langchain.tools import tool
-from langchain.agents import create_openai_tools_agent, AgentExecutor
-from langchain_core.messages import AIMessage, HumanMessage
-from langserve import add_routes
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict
+import os
+from datetime import datetime
+import pytz
+import json
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 app = FastAPI(title="LangChain Chat Assistant", version="1.0")
 
-@tool
+class ChatMessage(BaseModel):
+    role: str = Field(description="消息角色: user 或 assistant")
+    content: str = Field(description="消息内容")
+
+class ChatHistory(BaseModel):
+    messages: List[ChatMessage] = Field(description="对话历史")
+
 def get_current_time(location: str = "UTC") -> str:
-    """获取当前时间"""
-    from datetime import datetime
-    import pytz
     try:
         tz = pytz.timezone(location)
         current_time = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S %Z")
         return f"当前{location}时间: {current_time}"
-    except:
+    except Exception as e:
         return f"当前UTC时间: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}"
 
-@tool
 def calculate(expression: str) -> str:
-    """计算数学表达式，支持加减乘除和括号"""
     try:
         result = eval(expression)
         return f"计算结果: {expression} = {result}"
     except Exception as e:
         return f"计算错误: {str(e)}"
 
-class ChatHistory(BaseModel):
-    messages: List[dict] = Field(description="对话历史，包含role和content字段")
+tools = {
+    "get_current_time": get_current_time,
+    "calculate": calculate
+}
 
-def create_conversation_chain():
-    llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7)
-    
-    memory = ConversationBufferMemory(return_messages=True)
-    
-    tools = [get_current_time, calculate]
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "你是一个友好的对话助手，能够回答问题、提供帮助。使用工具时请用中文回复。"),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
-    
-    agent = create_openai_tools_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, memory=memory, verbose=True)
-    
-    return agent_executor
+def build_prompt(messages: List[ChatMessage]) -> str:
+    system_prompt = """你是一个聪明、友好、知识渊博的对话助手，能够回答各种问题、提供帮助。
 
-conversation_chain = create_conversation_chain()
+你拥有以下工具可以使用：
+1. get_current_time - 获取指定时区的当前时间
+2. calculate - 计算复杂数学表达式
 
-add_routes(
-    app,
-    conversation_chain,
-    path="/chat",
-    enabled_endpoints=["invoke", "batch", "stream"],
-)
+**使用工具的规则：**
+- 当用户询问时间相关问题时，使用 get_current_time 工具
+- 当用户询问数学计算问题时，使用 calculate 工具
+- 工具调用格式：{"tool_call": {"name": "工具名称", "args": {"参数名": "参数值"}}}
+
+**直接回答的规则：**
+- 对于一般性问题、闲聊、知识问答等，直接用自然语言回答
+- 不要过度依赖工具，只有在确实需要时才调用
+- 如果无法回答或不确定，可以礼貌地说明
+
+请用中文进行友好、自然的回复。"""
+    
+    prompt = system_prompt + "\n\n"
+    
+    for msg in messages:
+        if msg.role == "user":
+            prompt += f"用户: {msg.content}\n"
+        elif msg.role == "assistant":
+            prompt += f"助手: {msg.content}\n"
+        elif msg.role == "tool":
+            prompt += f"工具结果: {msg.content}\n"
+    
+    prompt += "助手:"
+    return prompt
+
+def parse_tool_call(response_text: str) -> Optional[Dict]:
+    try:
+        response_text = response_text.strip()
+        if response_text.startswith("{") and response_text.endswith("}"):
+            data = json.loads(response_text)
+            if "tool_call" in data:
+                return data["tool_call"]
+    except:
+        pass
+    return None
+
+def generate_response(messages: List[ChatMessage], api_key: str) -> str:
+    prompt = build_prompt(messages)
+    
+    import openai
+    openai.api_key = api_key
+    openai.api_base = "https://api.deepseek.com/v1"
+    
+    try:
+        response = openai.ChatCompletion.create(
+            model="deepseek-chat",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+        
+        content = response.choices[0].message.content
+        
+        tool_call = parse_tool_call(content)
+        if tool_call:
+            tool_name = tool_call.get("name")
+            args = tool_call.get("args", {})
+            
+            if tool_name in tools:
+                tool_result = tools[tool_name](**args)
+                
+                new_messages = messages.copy()
+                new_messages.append(ChatMessage(role="assistant", content=content))
+                new_messages.append(ChatMessage(role="tool", content=tool_result))
+                
+                return generate_response(new_messages, api_key)
+        
+        return content
+    except Exception as e:
+        return f"API调用错误: {str(e)}"
 
 @app.post("/chat/memory")
 async def chat_with_memory(chat_history: ChatHistory):
-    messages = []
-    for msg in chat_history.messages:
-        if msg["role"] == "user":
-            messages.append(HumanMessage(content=msg["content"]))
-        elif msg["role"] == "assistant":
-            messages.append(AIMessage(content=msg["content"]))
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="DEEPSEEK_API_KEY 未设置")
     
-    conversation_chain.memory.chat_memory.messages = messages
+    if not chat_history.messages:
+        return {"response": "请输入您的问题"}
     
-    if messages:
-        last_message = messages[-1]
-        if isinstance(last_message, HumanMessage):
-            response = conversation_chain.invoke({"input": last_message.content})
-            return {"response": response["output"]}
+    last_message = chat_history.messages[-1]
+    if last_message.role != "user":
+        return {"response": "最后一条消息必须是用户消息"}
     
-    return {"response": "请输入您的问题"}
+    response = generate_response(chat_history.messages, api_key)
+    return {"response": response}
 
 @app.get("/")
 async def root():
-    return {"message": "LangChain Chat Assistant API"}
+    return {"message": "LangChain Chat Assistant API (DeepSeek)"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
 if __name__ == "__main__":
     import uvicorn
