@@ -23,12 +23,11 @@ load_dotenv()
 
 # ============ LangChain 核心导入 ============
 from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain.chains import LLMChain
 from langchain.memory import ConversationBufferMemory
 from langchain.agents import Tool, initialize_agent, AgentType
 from langchain.schema import HumanMessage, AIMessage
-
 # ============ 页面配置 ============
 st.set_page_config(
     page_title="LangChain Chat Assistant",
