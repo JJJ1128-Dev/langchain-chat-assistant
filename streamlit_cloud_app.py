@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ============ LangChain 核心导入 ============
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain.chains import LLMChain
 from langchain.memory import ConversationBufferMemory
