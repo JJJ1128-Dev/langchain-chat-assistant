@@ -1,6 +1,6 @@
 # LangChain Chat Assistant
 
-一个基于LangChain框架构建的对话助手应用，集成了LangSmith监控、LangServe部署等核心功能。
+一个基于LangChain框架构建的对话助手应用，集成了LangSmith监控、LangServe设计等核心功能。
 
 ## 功能特性
 
@@ -40,10 +40,10 @@
 
 ### 技术架构
 
-- **后端**: FastAPI + LangChain + LangServe
+- **后端设计**: FastAPI + LangChain + LangServe（代码完整，可独立部署）
 - **前端**: Streamlit
 - **监控**: LangSmith
-- **部署**: 本地/Uvicorn + Streamlit Cloud
+- **云端部署**: Streamlit Cloud（单体应用展示），后端代码支持 LangServe 分离部署
 
 ## 项目结构
 
@@ -51,7 +51,7 @@
 ├── backend/
 │   ├── requirements.txt        # 后端依赖
 │   ├── server.py              # 基础FastAPI服务
-│   └── server_langchain.py    # LangChain完整实现
+│   └── server_langchain.py    # LangChain完整实现（含LangServe）
 ├── frontend/
 │   ├── requirements.txt        # 前端依赖
 │   ├── app.py                 # 前后端分离版前端
@@ -103,7 +103,7 @@ LANGCHAIN_PROJECT=langchain-chat-assistant
 
 ### 3. 启动服务
 
-**方式一：前后端分离（企业级部署）**
+**方式一：前后端分离（企业级设计）**
 
 启动后端服务：
 ```bash
@@ -125,7 +125,7 @@ streamlit run app.py
 streamlit run streamlit_cloud_app.py
 ```
 
-## API端点
+## API端点（后端设计）
 
 ### 基础对话接口
 
@@ -187,15 +187,7 @@ print(response.json()["output"])
 
 ### Streamlit Cloud 部署步骤
 
-1. **Fork/创建GitHub仓库**
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git branch -M main
-   git remote add origin https://github.com/yourusername/langchain-chat-assistant.git
-   git push -u origin main
-   ```
+1. **创建GitHub仓库并上传代码**
 
 2. **连接Streamlit Cloud**
    - 访问 https://streamlit.io/cloud
@@ -216,7 +208,11 @@ print(response.json()["output"])
 4. **部署完成**
    - 点击 "Deploy"
    - 等待部署完成
-   - 访问分配的URL
+   - 访问分配的URL（前端已可正常对话）
+
+### 后端独立部署（可选）
+
+后端 `backend/server_langchain.py` 代码完全符合 LangServe 规范，可单独部署到 Railway、Render 等平台，实现真正的前后端分离和高并发。由于免费平台环境限制，当前未独立运行，但代码设计支持该架构。
 
 ## LangSmith监控配置
 
@@ -233,9 +229,9 @@ print(response.json()["output"])
 ## 技术亮点
 
 - ✅ 完整的大模型应用开发六要素实现
-- ✅ 前后端分离架构，支持高并发
+- ✅ 代码设计支持前后端分离（后端使用 LangServe，可独立部署）
 - ✅ LangSmith全流程监控
-- ✅ LangServe标准化接口
+- ✅ LangServe标准化接口设计
 - ✅ 支持本地和云端部署
 - ✅ 完整的工具调用示例
 
