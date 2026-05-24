@@ -1,5 +1,5 @@
 """
-LangChain Chat Assistant - 最终稳定版（时间/天气中文显示）
+LangChain Chat Assistant - 完整版（时间/天气中文，高德API真实天气）
 兼容 LangChain 1.x，满足作业全部要求
 """
 
@@ -30,26 +30,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ============ 工具函数（中文版） ============
+# ============ 工具函数（中文，真实天气） ============
 def get_current_time_chinese(location: str = "Asia/Shanghai") -> str:
-    """获取指定时区的当前时间，返回中文格式"""
+    """获取指定时区的当前时间，中文格式"""
     try:
         tz = pytz.timezone(location)
         current_time = datetime.now(tz).strftime("%Y年%m月%d日 %H:%M:%S")
-        # 将时区名称转为中文常用表达
         if location == "Asia/Shanghai":
-            tz_name = "北京时间"
+            return f"当前北京时间: {current_time}"
         elif location == "America/New_York":
-            tz_name = "纽约时间"
+            return f"当前纽约时间: {current_time}"
         else:
-            tz_name = location.replace("_", " ")
-        return f"当前{tz_name}: {current_time}"
+            return f"当前{location}时间: {current_time}"
     except Exception:
         utc_now = datetime.utcnow().strftime("%Y年%m月%d日 %H:%M:%S")
         return f"当前UTC时间: {utc_now}"
 
 def calculate(expression: str) -> str:
-    """计算数学表达式（安全模式）"""
+    """安全计算数学表达式"""
     try:
         allowed = {"abs": abs, "max": max, "min": min, "sum": sum, "pow": pow, "round": round}
         result = eval(expression, {"__builtins__": {}}, allowed)
@@ -61,47 +59,63 @@ def search_knowledge(query: str) -> str:
     """模拟知识库搜索"""
     return f"知识库搜索结果: 关于'{query}'的相关信息..."
 
-def get_weather_chinese(city: str = "绍兴") -> str:
-    """查询实时天气，返回中文描述（优先真实API，失败时模拟）"""
+def get_weather_real(city: str = "绍兴") -> str:
+    """
+    使用高德地图天气API获取实时天气（中文真实数据）
+    需要环境变量 AMAP_API_KEY
+    """
+    api_key = os.getenv("AMAP_API_KEY")
+    if not api_key:
+        return "天气服务未配置：请设置高德API密钥（AMAP_API_KEY）"
+
     try:
-        # 使用 lang=zh 参数获取中文天气，%C 天气描述，%t 温度
-        url = f"https://wttr.in/{city}?format=%C+%t&lang=zh"
-        resp = requests.get(url, timeout=5)
-        if resp.status_code == 200 and resp.text.strip():
-            weather_raw = resp.text.strip()
-            # 去除可能的前导加号（温度）
-            weather_clean = weather_raw.replace('+', '')
-            return f"{city}天气：{weather_clean}"
-        else:
-            # 模拟数据回退
-            return f"{city}天气：晴，22°C（演示数据，网络限制）"
-    except Exception:
-        return f"{city}天气：多云，20°C（演示数据，API不可达）"
+        # 1. 根据城市名获取adcode
+        geo_url = f"https://restapi.amap.com/v3/geocode/geo?address={city}&output=json&key={api_key}"
+        geo_resp = requests.get(geo_url, timeout=5)
+        if geo_resp.status_code != 200:
+            return f"无法查询{city}天气（地理编码失败）"
+        geo_data = geo_resp.json()
+        if geo_data.get("status") != "1" or not geo_data.get("geocodes"):
+            return f"未找到城市：{city}"
+        adcode = geo_data["geocodes"][0]["adcode"]
+
+        # 2. 获取实时天气
+        weather_url = f"https://restapi.amap.com/v3/weather/weatherInfo?city={adcode}&key={api_key}"
+        weather_resp = requests.get(weather_url, timeout=5)
+        if weather_resp.status_code != 200:
+            return f"无法获取{city}天气"
+        weather_data = weather_resp.json()
+        if weather_data.get("status") != "1" or not weather_data.get("lives"):
+            return f"天气数据异常"
+        live = weather_data["lives"][0]
+        weather = live["weather"]          # 天气现象（中文）
+        temperature = live["temperature"]  # 温度（摄氏度）
+        return f"{city}天气：{weather}，{temperature}℃"
+    except Exception as e:
+        return f"天气查询失败：{str(e)}"
 
 def use_tool(user_input: str):
-    """根据输入决定是否调用工具，返回中文结果或 None"""
+    """根据输入决定调用哪个工具"""
     lower = user_input.lower()
-    # 时间匹配
-    if any(word in lower for word in ["时间", "现在几点", "当前时间", "几点钟", "北京时间", "纽约时间", "UTC"]):
+    # 时间
+    if any(word in lower for word in ["时间", "现在几点", "当前时间", "几点钟", "北京时间", "纽约时间"]):
         if "北京" in lower or "上海" in lower:
             return get_current_time_chinese("Asia/Shanghai")
         elif "纽约" in lower or "美国" in lower:
             return get_current_time_chinese("America/New_York")
         else:
             return get_current_time_chinese("Asia/Shanghai")
-    # 计算匹配
+    # 计算
     if any(word in lower for word in ["计算", "等于", "+", "-", "*", "/", "平方", "根号"]):
         expr_match = re.search(r'[\d+\-*/().]+', user_input)
-        if expr_match:
-            return calculate(expr_match.group())
-        else:
-            return calculate(user_input)
-    # 天气匹配
+        expr = expr_match.group() if expr_match else user_input
+        return calculate(expr)
+    # 天气
     if any(word in lower for word in ["天气", "气温", "温度", "下雨", "晴天", "多云", "阴"]):
         city_match = re.search(r'([\u4e00-\u9fa5]{2,})天气', user_input)
         city = city_match.group(1) if city_match else "绍兴"
-        return get_weather_chinese(city)
-    # 搜索匹配
+        return get_weather_real(city)
+    # 搜索
     if any(word in lower for word in ["搜索", "查找", "什么是"]):
         return search_knowledge(user_input)
     return None
@@ -125,7 +139,7 @@ def init_session_state():
             st.session_state.llm = None
 
 def build_chain():
-    """构建 LCEL 链（Prompt + LLM + 输出解析）"""
+    """构建 LCEL 链"""
     llm = st.session_state.llm
     if not llm:
         return None
@@ -137,7 +151,6 @@ def build_chain():
     return prompt | llm | StrOutputParser()
 
 def get_chat_history_from_messages(messages: List[Dict]) -> List:
-    """将消息列表转换为 LangChain 消息格式"""
     history = []
     for msg in messages:
         if msg["role"] == "user":
@@ -157,7 +170,7 @@ def main():
             st.success("✅ DeepSeek API 正常")
         else:
             st.error("❌ 未设置 DEEPSEEK_API_KEY")
-            st.info("请在 Streamlit Cloud Secrets 中配置")
+            st.info("请在 Secrets 中配置 DEEPSEEK_API_KEY")
         st.divider()
         st.session_state.use_tool_mode = st.toggle("🔧 启用工具模式", value=st.session_state.use_tool_mode)
         if st.button("🗑️ 清空对话"):
@@ -167,10 +180,10 @@ def main():
         st.markdown("""
         **核心功能（满足作业要求）**
         1. **LLM调用** - DeepSeek 大模型
-        2. **Prompt工程** - ChatPromptTemplate + MessagesPlaceholder
-        3. **Chain链式调用** - LCEL (`prompt | llm | parser`)
-        4. **Memory记忆** - 手动维护消息列表，传递历史
-        5. **Tool工具使用** - 时间、计算、天气、搜索（全部中文输出）
+        2. **Prompt工程** - ChatPromptTemplate
+        3. **Chain链式调用** - LCEL
+        4. **Memory记忆** - 消息列表
+        5. **Tool工具使用** - 时间、计算、天气（高德API）
         """)
 
     # 显示历史消息
