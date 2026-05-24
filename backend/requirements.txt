@@ -4,3 +4,5 @@ langserve
 uvicorn
 fastapi
 python-dotenv
+pytz
+requests
