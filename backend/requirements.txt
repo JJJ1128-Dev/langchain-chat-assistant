@@ -1,11 +1,14 @@
-langchain==0.1.0
-langchain-core==0.1.52
-langchain-openai==0.0.5
-langchain-community==0.0.10
-langsmith==0.0.87
-langserve==0.0.30
-uvicorn==0.24.0
-fastapi==0.104.1
+# 切换到 LangChain 1.0 LTS 稳定版本核心
+langchain==1.0.0
+langchain-core==1.0.0
+langchain-openai==1.0.0
+langchain-community==1.0.0
+
+# 其他依赖（保持稳定）
+langsmith==0.3.7
+langserve==0.3.1
+fastapi==0.115.11
+uvicorn==0.34.0
 python-dotenv==1.0.0
 pytz
 requests
