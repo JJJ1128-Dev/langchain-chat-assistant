@@ -1,5 +1,5 @@
 """
-LangChain Chat Assistant - 最终稳定版（支持时间、计算、天气查询）
+LangChain Chat Assistant - 最终稳定版（支持时间、计算、天气查询，带模拟回退）
 兼容 LangChain 1.x，满足作业全部要求
 """
 
@@ -54,17 +54,19 @@ def search_knowledge(query: str) -> str:
     return f"知识库搜索结果: 关于'{query}'的相关信息..."
 
 def get_weather(city: str = "绍兴") -> str:
-    """查询实时天气（使用 wttr.in，无需 API Key）"""
+    """查询实时天气（优先尝试真实API，失败时返回模拟数据）"""
     try:
         url = f"https://wttr.in/{city}?format=%C+%t"
-        resp = requests.get(url, timeout=5)
-        if resp.status_code == 200:
+        resp = requests.get(url, timeout=3)
+        if resp.status_code == 200 and resp.text.strip():
             weather = resp.text.strip()
             return f"{city}天气：{weather}"
         else:
-            return f"无法获取{city}天气，请稍后再试。"
-    except Exception as e:
-        return f"天气查询失败：{str(e)}"
+            # 回退到模拟数据（保证演示）
+            return f"{city}天气：晴，22°C（演示数据，网络限制无法获取真实天气）"
+    except Exception:
+        # 任何异常都返回模拟数据
+        return f"{city}天气：多云，20°C（演示数据，API不可达）"
 
 def use_tool(user_input: str):
     """根据输入决定是否调用工具，返回工具结果或 None"""
