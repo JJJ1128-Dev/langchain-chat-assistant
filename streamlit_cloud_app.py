@@ -1,10 +1,12 @@
 """
-LangChain Chat Assistant - 最终稳定版
+LangChain Chat Assistant - 最终稳定版（支持时间、计算、天气查询）
 兼容 LangChain 1.x，满足作业全部要求
 """
 
 import streamlit as st
 import os
+import re
+import requests
 from datetime import datetime
 import pytz
 from typing import List, Dict
@@ -12,12 +14,10 @@ from typing import List, Dict
 from dotenv import load_dotenv
 load_dotenv()
 
-# ============ 只导入新版 LangChain 中绝对可靠的组件 ============
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnableLambda
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage
 
 # ============ 页面配置 ============
 st.set_page_config(page_title="LangChain 对话助手", page_icon="🤖", layout="wide")
@@ -30,17 +30,19 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ============ 工具函数（体现 Tool 使用） ============
-def get_current_time(location: str = "UTC") -> str:
+# ============ 工具函数 ============
+def get_current_time(location: str = "Asia/Shanghai") -> str:
+    """获取指定时区的当前时间"""
     try:
         tz = pytz.timezone(location)
-        return f"当前{location}时间: {datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S %Z')}"
-    except:
+        current_time = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+        return f"当前{location}时间: {current_time}"
+    except Exception:
         return f"当前UTC时间: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}"
 
 def calculate(expression: str) -> str:
+    """计算数学表达式（安全模式）"""
     try:
-        # 安全的 eval
         allowed = {"abs": abs, "max": max, "min": min, "sum": sum, "pow": pow, "round": round}
         result = eval(expression, {"__builtins__": {}}, allowed)
         return f"计算结果: {expression} = {result}"
@@ -48,64 +50,82 @@ def calculate(expression: str) -> str:
         return f"计算错误: {e}"
 
 def search_knowledge(query: str) -> str:
+    """模拟知识库搜索"""
     return f"知识库搜索结果: 关于'{query}'的相关信息..."
 
-# 简单工具路由器
-def use_tool(user_input: str) -> str | None:
+def get_weather(city: str = "绍兴") -> str:
+    """查询实时天气（使用 wttr.in，无需 API Key）"""
+    try:
+        url = f"https://wttr.in/{city}?format=%C+%t"
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            weather = resp.text.strip()
+            return f"{city}天气：{weather}"
+        else:
+            return f"无法获取{city}天气，请稍后再试。"
+    except Exception as e:
+        return f"天气查询失败：{str(e)}"
+
+def use_tool(user_input: str):
     """根据输入决定是否调用工具，返回工具结果或 None"""
     lower = user_input.lower()
-    if any(word in lower for word in ["时间", "现在几点", "what time"]):
-        return get_current_time()
-    if any(word in lower for word in ["计算", "等于", "多少", "+", "-", "*", "/"]):
-        # 提取表达式（简单方式：取输入中可能的部分）
-        import re
+    # 时间匹配
+    if any(word in lower for word in ["时间", "现在几点", "当前时间", "几点钟", "北京时间", "UTC时间"]):
+        if "北京" in lower:
+            return get_current_time("Asia/Shanghai")
+        elif "纽约" in lower or "美国" in lower:
+            return get_current_time("America/New_York")
+        else:
+            return get_current_time("Asia/Shanghai")
+    # 计算匹配
+    if any(word in lower for word in ["计算", "等于", "+", "-", "*", "/", "平方", "根号"]):
         expr_match = re.search(r'[\d+\-*/().]+', user_input)
         if expr_match:
             return calculate(expr_match.group())
         else:
             return calculate(user_input)
-    if any(word in lower for word in ["搜索", "查找", "search"]):
+    # 天气匹配
+    if any(word in lower for word in ["天气", "气温", "温度", "下雨", "晴天"]):
+        city_match = re.search(r'([\u4e00-\u9fa5]{2,})天气', user_input)
+        city = city_match.group(1) if city_match else "绍兴"
+        return get_weather(city)
+    # 搜索匹配
+    if any(word in lower for word in ["搜索", "查找", "什么是"]):
         return search_knowledge(user_input)
     return None
 
-# ============ 记忆管理（手动实现 ConversationBufferMemory，避免模块导入问题） ============
+# ============ 状态管理 ============
 def init_session_state():
     if "messages" not in st.session_state:
-        st.session_state.messages = []          # 存储 {"role": "user"/"assistant", "content": str}
+        st.session_state.messages = []
     if "use_tool_mode" not in st.session_state:
-        st.session_state.use_tool_mode = False
+        st.session_state.use_tool_mode = True   # 默认启用工具模式
     if "llm" not in st.session_state:
-        llm = get_llm()
-        st.session_state.llm = llm
-
-def get_llm():
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    if not api_key:
-        return None
-    return ChatOpenAI(
-        model="deepseek-chat",
-        api_key=api_key,
-        base_url="https://api.deepseek.com/v1",
-        temperature=0.7
-    )
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+        if api_key:
+            st.session_state.llm = ChatOpenAI(
+                model="deepseek-chat",
+                api_key=api_key,
+                base_url="https://api.deepseek.com/v1",
+                temperature=0.7
+            )
+        else:
+            st.session_state.llm = None
 
 def build_chain():
-    """构建 LCEL 链，包含 Prompt、LLM、输出解析（体现 Chain 链式调用）"""
+    """构建 LCEL 链（Prompt + LLM + 输出解析）"""
     llm = st.session_state.llm
     if not llm:
         return None
-
     prompt = ChatPromptTemplate.from_messages([
         ("system", "你是一个友好的AI助手。请用中文回答。"),
         MessagesPlaceholder(variable_name="history"),
         ("human", "{input}")
     ])
-
-    chain = prompt | llm | StrOutputParser()
-    return chain
+    return prompt | llm | StrOutputParser()
 
 def get_chat_history_from_messages(messages: List[Dict]) -> List:
-    """将 st.session_state.messages 转换为 LangChain 消息格式"""
+    """将消息列表转换为 LangChain 消息格式"""
     history = []
     for msg in messages:
         if msg["role"] == "user":
@@ -119,7 +139,6 @@ def main():
     init_session_state()
     st.markdown('<h1 class="main-header">🤖 LangChain 对话助手</h1>', unsafe_allow_html=True)
 
-    # 侧边栏
     with st.sidebar:
         st.title("⚙️ 配置")
         if st.session_state.llm:
@@ -128,7 +147,7 @@ def main():
             st.error("❌ 未设置 DEEPSEEK_API_KEY")
             st.info("请在 Streamlit Cloud Secrets 中配置")
         st.divider()
-        st.session_state.use_tool_mode = st.toggle("🔧 启用工具模式 (Agent)", value=st.session_state.use_tool_mode)
+        st.session_state.use_tool_mode = st.toggle("🔧 启用工具模式", value=st.session_state.use_tool_mode)
         if st.button("🗑️ 清空对话"):
             st.session_state.messages.clear()
             st.rerun()
@@ -139,7 +158,7 @@ def main():
         2. **Prompt工程** - ChatPromptTemplate + MessagesPlaceholder
         3. **Chain链式调用** - LCEL (`prompt | llm | parser`)
         4. **Memory记忆** - 手动维护消息列表，传递历史
-        5. **Tool工具使用** - 时间、计算、搜索（可通过开关启用）
+        5. **Tool工具使用** - 时间、计算、天气、搜索
         """)
 
     # 显示历史消息
@@ -157,13 +176,11 @@ def main():
         with st.chat_message("assistant"):
             with st.spinner("思考中..."):
                 try:
-                    # 工具模式优先
                     if st.session_state.use_tool_mode:
                         tool_result = use_tool(user_input)
                         if tool_result:
                             response = tool_result
                         else:
-                            # 没有匹配工具，走普通 LLM
                             chain = build_chain()
                             if chain:
                                 history = get_chat_history_from_messages(st.session_state.messages[:-1])
@@ -171,7 +188,6 @@ def main():
                             else:
                                 response = "❌ API 未配置"
                     else:
-                        # 普通对话模式
                         chain = build_chain()
                         if chain:
                             history = get_chat_history_from_messages(st.session_state.messages[:-1])
