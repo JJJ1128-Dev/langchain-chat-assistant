@@ -1,5 +1,7 @@
 langchain
 langchain-openai
+langchain-core
+langchain-community
 langserve
 uvicorn
 fastapi
