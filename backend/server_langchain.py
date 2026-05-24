@@ -21,10 +21,37 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
-from langchain.memory import ConversationBufferMemory
+# 注意：不再导入 langchain.memory，改用自定义 Memory
 from langchain.tools import Tool
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langserve import add_routes
+
+# ============ 自定义 Memory（完全兼容 ConversationBufferMemory 接口） ============
+class MyMemory:
+    """手动实现的对话记忆，接口与 LangChain 的 ConversationBufferMemory 一致"""
+    def __init__(self, memory_key: str = "chat_history", return_messages: bool = True):
+        self.memory_key = memory_key
+        self.return_messages = return_messages
+        self.chat_memory = []  # 存储 {"human": "...", "ai": "..."}
+    
+    def save_context(self, inputs: Dict[str, Any], outputs: Dict[str, Any]):
+        """保存一轮对话"""
+        self.chat_memory.append({
+            "human": inputs.get("input", ""),
+            "ai": outputs.get("output", "")
+        })
+    
+    def load_memory_variables(self, inputs: Dict[str, Any] = None) -> Dict[str, Any]:
+        """返回历史消息（格式与 LangChain 兼容）"""
+        from langchain_core.messages import HumanMessage, AIMessage
+        messages = []
+        for turn in self.chat_memory:
+            messages.append(HumanMessage(content=turn["human"]))
+            messages.append(AIMessage(content=turn["ai"]))
+        return {self.memory_key: messages}
+    
+    def clear(self):
+        self.chat_memory.clear()
 
 # ============ FastAPI 应用初始化 ============
 app = FastAPI(
@@ -188,12 +215,12 @@ def get_llm():
         temperature=0.7
     )
 
-# 存储会话记忆
-session_memories: Dict[str, ConversationBufferMemory] = {}
+# 存储会话记忆（使用自定义 MyMemory）
+session_memories: Dict[str, MyMemory] = {}
 
-def get_memory(session_id: str = "default") -> ConversationBufferMemory:
+def get_memory(session_id: str = "default") -> MyMemory:
     if session_id not in session_memories:
-        session_memories[session_id] = ConversationBufferMemory(
+        session_memories[session_id] = MyMemory(
             memory_key="chat_history",
             return_messages=True
         )
@@ -230,7 +257,7 @@ def create_agent_chain(session_id: str, tracer: LangSmithTracer = None):
     executor = AgentExecutor(
         agent=agent,
         tools=langchain_tools,
-        memory=get_memory(session_id),
+        memory=get_memory(session_id),   # 使用自定义 Memory
         verbose=True,
         handle_parsing_errors=True
     )
@@ -297,8 +324,8 @@ async def chat_with_memory(chat_history: ChatHistory):
                 user_msg = chat_history.messages[i]
                 assistant_msg = chat_history.messages[i + 1]
                 if user_msg.role == "user" and assistant_msg.role == "assistant":
-                    memory.chat_memory.add_user_message(user_msg.content)
-                    memory.chat_memory.add_ai_message(assistant_msg.content)
+                    # 使用自定义 Memory 的 save_context 方法
+                    memory.save_context({"input": user_msg.content}, {"output": assistant_msg.content})
         executor, _ = create_agent_chain(session_id, tracer)
         result = executor.invoke({"input": last_message.content})
         response = result["output"]
@@ -362,7 +389,7 @@ async def root():
             "1. LLM调用 (DeepSeek)",
             "2. Prompt工程",
             "3. Chain链式调用 (Agent)",
-            "4. Memory记忆 (ConversationBufferMemory)",
+            "4. Memory记忆 (自定义 MyMemory，兼容 ConversationBufferMemory)",
             "5. Tool工具使用 (时间、计算、搜索、天气)",
             "6. LangSmith监控",
             "7. LangServe部署"
@@ -389,4 +416,4 @@ async def list_tools():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
