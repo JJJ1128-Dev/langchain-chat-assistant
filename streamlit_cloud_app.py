@@ -1,5 +1,5 @@
 """
-LangChain Chat Assistant - 最终稳定版（支持时间、计算、天气查询，带模拟回退）
+LangChain Chat Assistant - 最终稳定版（时间/天气中文显示）
 兼容 LangChain 1.x，满足作业全部要求
 """
 
@@ -30,15 +30,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ============ 工具函数 ============
-def get_current_time(location: str = "Asia/Shanghai") -> str:
-    """获取指定时区的当前时间"""
+# ============ 工具函数（中文版） ============
+def get_current_time_chinese(location: str = "Asia/Shanghai") -> str:
+    """获取指定时区的当前时间，返回中文格式"""
     try:
         tz = pytz.timezone(location)
-        current_time = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
-        return f"当前{location}时间: {current_time}"
+        current_time = datetime.now(tz).strftime("%Y年%m月%d日 %H:%M:%S")
+        # 将时区名称转为中文常用表达
+        if location == "Asia/Shanghai":
+            tz_name = "北京时间"
+        elif location == "America/New_York":
+            tz_name = "纽约时间"
+        else:
+            tz_name = location.replace("_", " ")
+        return f"当前{tz_name}: {current_time}"
     except Exception:
-        return f"当前UTC时间: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        utc_now = datetime.utcnow().strftime("%Y年%m月%d日 %H:%M:%S")
+        return f"当前UTC时间: {utc_now}"
 
 def calculate(expression: str) -> str:
     """计算数学表达式（安全模式）"""
@@ -53,32 +61,34 @@ def search_knowledge(query: str) -> str:
     """模拟知识库搜索"""
     return f"知识库搜索结果: 关于'{query}'的相关信息..."
 
-def get_weather(city: str = "绍兴") -> str:
-    """查询实时天气（优先尝试真实API，失败时返回模拟数据）"""
+def get_weather_chinese(city: str = "绍兴") -> str:
+    """查询实时天气，返回中文描述（优先真实API，失败时模拟）"""
     try:
-        url = f"https://wttr.in/{city}?format=%C+%t"
-        resp = requests.get(url, timeout=3)
+        # 使用 lang=zh 参数获取中文天气，%C 天气描述，%t 温度
+        url = f"https://wttr.in/{city}?format=%C+%t&lang=zh"
+        resp = requests.get(url, timeout=5)
         if resp.status_code == 200 and resp.text.strip():
-            weather = resp.text.strip()
-            return f"{city}天气：{weather}"
+            weather_raw = resp.text.strip()
+            # 去除可能的前导加号（温度）
+            weather_clean = weather_raw.replace('+', '')
+            return f"{city}天气：{weather_clean}"
         else:
-            # 回退到模拟数据（保证演示）
-            return f"{city}天气：晴，22°C（演示数据，网络限制无法获取真实天气）"
+            # 模拟数据回退
+            return f"{city}天气：晴，22°C（演示数据，网络限制）"
     except Exception:
-        # 任何异常都返回模拟数据
         return f"{city}天气：多云，20°C（演示数据，API不可达）"
 
 def use_tool(user_input: str):
-    """根据输入决定是否调用工具，返回工具结果或 None"""
+    """根据输入决定是否调用工具，返回中文结果或 None"""
     lower = user_input.lower()
     # 时间匹配
-    if any(word in lower for word in ["时间", "现在几点", "当前时间", "几点钟", "北京时间", "UTC时间"]):
-        if "北京" in lower:
-            return get_current_time("Asia/Shanghai")
+    if any(word in lower for word in ["时间", "现在几点", "当前时间", "几点钟", "北京时间", "纽约时间", "UTC"]):
+        if "北京" in lower or "上海" in lower:
+            return get_current_time_chinese("Asia/Shanghai")
         elif "纽约" in lower or "美国" in lower:
-            return get_current_time("America/New_York")
+            return get_current_time_chinese("America/New_York")
         else:
-            return get_current_time("Asia/Shanghai")
+            return get_current_time_chinese("Asia/Shanghai")
     # 计算匹配
     if any(word in lower for word in ["计算", "等于", "+", "-", "*", "/", "平方", "根号"]):
         expr_match = re.search(r'[\d+\-*/().]+', user_input)
@@ -87,10 +97,10 @@ def use_tool(user_input: str):
         else:
             return calculate(user_input)
     # 天气匹配
-    if any(word in lower for word in ["天气", "气温", "温度", "下雨", "晴天"]):
+    if any(word in lower for word in ["天气", "气温", "温度", "下雨", "晴天", "多云", "阴"]):
         city_match = re.search(r'([\u4e00-\u9fa5]{2,})天气', user_input)
         city = city_match.group(1) if city_match else "绍兴"
-        return get_weather(city)
+        return get_weather_chinese(city)
     # 搜索匹配
     if any(word in lower for word in ["搜索", "查找", "什么是"]):
         return search_knowledge(user_input)
@@ -160,7 +170,7 @@ def main():
         2. **Prompt工程** - ChatPromptTemplate + MessagesPlaceholder
         3. **Chain链式调用** - LCEL (`prompt | llm | parser`)
         4. **Memory记忆** - 手动维护消息列表，传递历史
-        5. **Tool工具使用** - 时间、计算、天气、搜索
+        5. **Tool工具使用** - 时间、计算、天气、搜索（全部中文输出）
         """)
 
     # 显示历史消息
