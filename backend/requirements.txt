@@ -1,6 +1,6 @@
 langchain==0.1.0
 langchain-openai
-langchain-core==0.1.52
+langchain-core
 langchain-community==0.0.10
 langsmith
 langserve
