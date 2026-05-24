@@ -1,19 +1,11 @@
-# 系统依赖
-fastapi
-uvicorn
-python-dotenv
+langchain==0.1.0
+langchain-core==0.1.52
+langchain-openai==0.0.5
+langchain-community==0.0.10
+langsmith==0.0.87
+langserve==0.0.30
+uvicorn==0.24.0
+fastapi==0.104.1
+python-dotenv==1.0.0
 pytz
 requests
-
-# 主要 LangChain 组件（不指定具体版本，让 pip 自动解决）
-langchain
-langchain-core
-langchain-openai
-langchain-community
-
-# LangServe 与 LangSmith
-langserve
-langsmith
-
-# 其他
-typing-extensions
