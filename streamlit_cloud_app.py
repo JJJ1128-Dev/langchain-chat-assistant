@@ -1,17 +1,11 @@
 """
 LangChain Chat Assistant - 完整版（时间/天气中文，高德API真实天气）
-集成 LangSmith 监控
+LangSmith 监控已硬编码 API 密钥
 兼容 LangChain 1.x，满足作业全部要求
 """
 
-# ============ LangSmith 监控配置（必须在任何 LangChain 导入之前） ============
-import os
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
-os.environ["LANGCHAIN_API_KEY"] = "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"  # 请替换为您的实际新密钥
-os.environ["LANGCHAIN_PROJECT"] = "langchain-chat-assistant"
-
 import streamlit as st
+import os
 import re
 import requests
 from datetime import datetime
@@ -20,6 +14,12 @@ from typing import List, Dict
 
 from dotenv import load_dotenv
 load_dotenv()
+
+# ============ LangSmith 监控配置（硬编码） ============
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+os.environ["LANGCHAIN_API_KEY"] = "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"
+os.environ["LANGCHAIN_PROJECT"] = "langchain-chat-assistant"
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
