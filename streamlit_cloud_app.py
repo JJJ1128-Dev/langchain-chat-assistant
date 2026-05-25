@@ -1,6 +1,6 @@
 """
 LangChain Chat Assistant - 完整版（时间/天气中文，高德API真实天气）
-LangSmith 监控已集成（请填写您的新API密钥）
+LangSmith 监控通过环境变量启用（已配置在 Streamlit Secrets 中）
 兼容 LangChain 1.x，满足作业全部要求
 """
 
@@ -15,13 +15,10 @@ from typing import List, Dict
 from dotenv import load_dotenv
 load_dotenv()
 
-# ============ LangSmith 监控配置（修改这里！！！） ============
-# 请将下面的字符串替换为您的新 LangSmith API Key
-YOUR_LANGSMITH_API_KEY = "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"  # ← 已经填入您的密钥
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
-os.environ["LANGCHAIN_API_KEY"] = YOUR_LANGSMITH_API_KEY
-os.environ["LANGCHAIN_PROJECT"] = "langchain-chat-assistant"
+# ============ LangSmith 监控配置（从环境变量读取，由 Streamlit Secrets 注入） ============
+# 不再硬编码任何密钥，全部从 os.environ 读取
+# 您需要在 Streamlit Cloud 的 Secrets 中配置以下变量：
+# LANGCHAIN_API_KEY, LANGCHAIN_TRACING_V2, LANGCHAIN_ENDPOINT, LANGCHAIN_PROJECT
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -103,7 +100,7 @@ def get_weather_real(city: str = "绍兴") -> str:
     except Exception as e:
         return f"天气查询失败：{str(e)}"
 
-# ============ 新增：获取星期几的函数 ============
+# ============ 获取星期几的函数 ============
 def get_weekday() -> str:
     """返回当前星期几（中文）"""
     weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
@@ -112,10 +109,8 @@ def get_weekday() -> str:
 def use_tool(user_input: str):
     """根据输入决定调用哪个工具（必须优先于LLM）"""
     lower = user_input.lower()
-    # ============ 修改点1：增加星期几匹配 ============
     if any(word in lower for word in ["星期", "周几", "礼拜", "今天星期"]):
         return get_weekday()
-    # 时间匹配 - 支持多种问法
     if any(word in lower for word in ["时间", "现在几点", "当前时间", "几点钟", "北京时间", "纽约时间", "几点了"]):
         if "北京" in lower or "上海" in lower:
             return get_current_time_chinese("Asia/Shanghai")
@@ -123,17 +118,14 @@ def use_tool(user_input: str):
             return get_current_time_chinese("America/New_York")
         else:
             return get_current_time_chinese("Asia/Shanghai")
-    # 计算匹配
     if any(word in lower for word in ["计算", "等于", "+", "-", "*", "/", "平方", "根号"]):
         expr_match = re.search(r'[\d+\-*/().]+', user_input)
         expr = expr_match.group() if expr_match else user_input
         return calculate(expr)
-    # 天气匹配
     if any(word in lower for word in ["天气", "气温", "温度", "下雨", "晴天", "多云", "阴", "预报"]):
         city_match = re.search(r'([\u4e00-\u9fa5]{2,})天气', user_input)
         city = city_match.group(1) if city_match else "绍兴"
         return get_weather_real(city)
-    # 搜索匹配
     if any(word in lower for word in ["搜索", "查找", "什么是"]):
         return search_knowledge(user_input)
     return None
@@ -143,7 +135,7 @@ def init_session_state():
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "use_tool_mode" not in st.session_state:
-        st.session_state.use_tool_mode = True   # 默认启用工具模式
+        st.session_state.use_tool_mode = True
     if "llm" not in st.session_state:
         api_key = os.getenv("DEEPSEEK_API_KEY")
         if api_key:
@@ -157,7 +149,6 @@ def init_session_state():
             st.session_state.llm = None
 
 def build_chain():
-    """构建 LCEL 链（用于普通对话）"""
     llm = st.session_state.llm
     if not llm:
         return None
@@ -204,12 +195,10 @@ def main():
         5. **Tool工具使用** - 星期、时间、计算、天气（高德API）、搜索
         """)
 
-    # 显示历史消息
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    # 输入
     user_input = st.chat_input("请输入你的问题...")
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
